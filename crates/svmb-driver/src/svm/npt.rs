@@ -15,7 +15,7 @@
 
 use alloc::boxed::Box;
 
-use crate::phys::{alloc_contiguous, alloc_pool, free_contiguous, free_pool, virtual_to_physical};
+use crate::phys::{alloc_contiguous, alloc_pool, free_contiguous, virtual_to_physical}; // free_pool 保留在 phys.rs(对称性,allow(dead_code))
 
 /// 恒等映射窗口上限:1TB(C 版 r116 B5 修复的语义)
 pub const IDENTITY_FILL_END_PA: u64 = 0x100_0000_0000; // 1 TB = 2^40

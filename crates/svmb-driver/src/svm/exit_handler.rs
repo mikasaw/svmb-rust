@@ -157,6 +157,7 @@ unsafe fn hypercall_invoke(vcpu: *mut VcpuContext, nr: u32, _a1: u64, _a2: u64, 
 }
 
 #[inline]
+#[allow(dead_code)] // 旧 asm 循环路径遗留;r151 结构循环改用 vcpu+0x4000 内嵌偏移
 unsafe fn regs_of(vcpu: *mut VcpuContext) -> *mut GuestRegs {
     unsafe { core::ptr::addr_of_mut!((*vcpu).regs) }
 }
@@ -220,6 +221,7 @@ unsafe fn handle_msr(_vcpu: *mut VcpuContext, regs: *mut GuestRegs, info1: u64) 
 /// LEVEL-0(全 false)= r114 实测 T+390s/4248 exits 存活(历史崩窗 10-30s)
 /// ⇒ 崩因在 exit 处理内容。逐级开回定位:
 /// r114a: 只开普通 CPUID(执行+写回+隐藏位);r114b: 加超级调用;+MSR。
+#[allow(dead_code)] // 二分资产:exit 拦截开关组之一(现由 hypervisor 侧 CPUID_ONLY/MSR_ONLY 接管)
 const ENABLE_CPUID_EXEC: bool = true;
 /// r115(2026-10-08):对齐 C 版稳定形态的机器行为 —— CrumbPost 信标群
 /// (r107 freeze flight recorder)+ asm r113 bank-everything。C 版 Debug
@@ -428,6 +430,60 @@ pub unsafe extern "C" fn handle_exit_c(
             1
         } else {
             0
+        }
+    }
+}
+
+// ---- r152 C-obj 混链桥:svm_entry.obj(ml64)的三个外部符号 ----
+// 契约见 svmb/driver/src/hw/asm/svm_entry.asm;VcpuContext/GuestRegs 布局
+// 与 offsets.inc 逐项同源(guest_vmcb@0/info@0x3000/regs@0x4000,
+// GREG_RAX@0x170..EXTRA2@0x198),vcpu_state::LEAVING=3 同值。
+
+/// C asm 每圈 vmrun-pre 信标(0x184,携带 Ctrl.CleanBits)
+#[unsafe(export_name = "SvmbCrumbPostD")]
+pub unsafe extern "C" fn svmb_crumb_postd_c(tag: i32, data: u64) {
+    unsafe { svmb_crumb_post_d(tag, data) }
+}
+
+/// C asm 的 WinDbg 栈走查机器帧(与既有 svmb_fill_machine_frame 同体,
+/// 仅为满足 C 符号名)
+#[unsafe(export_name = "SvmbFillMachineFrame")]
+pub unsafe extern "C" fn svmb_fill_machine_frame_c(frame: *mut u64, vcpu: *mut VcpuContext) {
+    unsafe {
+        let vmcb = vmcb_of(vcpu);
+        *frame.add(0) = vmcb.get_u64(ctrl_off::NRIP);
+        *frame.add(1) = vmcb.get_u16(save_off::CS) as u64;
+        *frame.add(2) = vmcb.get_u64(save_off::RFLAGS) & 0xFFFF_FFFF;
+        *frame.add(3) = vmcb.get_u64(save_off::RSP);
+        *frame.add(4) = vmcb.get_u16(save_off::SS) as u64;
+    }
+}
+
+/// C asm 的 exit shim:C 版 SvmbVmExitEntry 语义逐条对齐 ——
+/// VMCB save 4 字段→镜像、清 Extra1/2、分发、镜像→VMCB、Extra1 devirt 契约
+#[unsafe(export_name = "SvmbVmExitEntry")]
+pub unsafe extern "C" fn svmb_vm_exit_entry_c(vcpu: *mut VcpuContext, regs: *mut GuestRegs) {
+    unsafe {
+        let vmcb = vmcb_of(vcpu);
+        (*regs).rip = vmcb.get_u64(save_off::RIP);
+        (*regs).rsp = vmcb.get_u64(save_off::RSP);
+        (*regs).rax = vmcb.get_u64(save_off::RAX);
+        (*regs).rflags = vmcb.get_u64(save_off::RFLAGS);
+        (*regs).extra1 = 0;
+        (*regs).extra2 = 0;
+
+        let leaving = handle_exit(vcpu, regs);
+
+        vmcb.set_u64(save_off::RIP, (*regs).rip);
+        vmcb.set_u64(save_off::RSP, (*regs).rsp);
+        vmcb.set_u64(save_off::RAX, (*regs).rax);
+        vmcb.set_u64(save_off::RFLAGS, (*regs).rflags);
+
+        if leaving {
+            // C asm 的 exit_virtualization:Extra1≠0 触发,Extra2 为恢复 rip;
+            // 以被打断 rip 就地恢复(近似 C r28 语义)
+            (*regs).extra1 = regs as u64;
+            (*regs).extra2 = (*regs).rip;
         }
     }
 }

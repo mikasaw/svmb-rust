@@ -49,6 +49,7 @@ pub fn alloc_pool(size: usize) -> *mut u8 {
 
 /// # Safety
 /// p 必须来自 alloc_pool
+#[allow(dead_code)] // 分配/释放对称保留(per-core 页永不 free = r112 泄漏纪律)
 pub unsafe fn free_pool(p: *mut u8) {
     unsafe { ExFreePoolWithTag(p as PVOID, POOL_TAG_SVMB) }
 }

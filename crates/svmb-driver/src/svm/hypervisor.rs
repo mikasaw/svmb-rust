@@ -27,8 +27,15 @@ use wdk_sys::{
 
 use super::asm::{
     svmb_read_cr0, svmb_read_cr2, svmb_read_cr3, svmb_read_cr4, svmb_read_cs, svmb_read_ds,
-    svmb_read_es, svmb_read_fs, svmb_read_gs, svmb_read_ss, svmb_rdmsr, svmb_save_or_load_regs,
-    svmb_sidt, svmb_sgdt, svmb_sldt, svmb_str, svmb_vmm_loop, svmb_vmm_loop_c, svmb_wrmsr, svmb_run_guest, svmb_capture_regs, svmb_restore_context};
+    svmb_read_es, svmb_read_fs, svmb_read_gs, svmb_read_ss, svmb_rdmsr,
+    svmb_sidt, svmb_sgdt, svmb_sldt, svmb_str, svmb_vmm_loop_c, svmb_wrmsr,
+    svmb_capture_regs, svmb_restore_context};
+// r151 后退役的 asm 路径(保留本体供二分回退):
+// - svmb_vmm_loop: 前返回式架构的旧循环(r124 前)
+// - svmb_run_guest: r124 返回式单圈(r148 舞步修正版;现由 svmb_vmm_loop_c 取代)
+// - svmb_save_or_load_regs: 两阶段重入 hack(r124 淘汰)
+#[allow(unused_imports)]
+use super::asm::{svmb_vmm_loop, svmb_run_guest, svmb_save_or_load_regs};
 use super::msrpm::{Iopm, Msrpm};
 use super::msr;
 use super::npt::NptView;
@@ -189,12 +196,18 @@ unsafe fn enter_core(cpu_idx: u32) -> i32 {
         // 返回值:0 = leaving 请求(走下方 teardown/restore),
         // 非 0 = VMRUN 失败码(哨兵路径,记 0x190 信标)
         if ENABLE_VMRUN {
-            let reason =
-                unsafe { svmb_vmm_loop_c(vcpu, guest_pa, host_pa, stack_top) };
-            if reason != 0 {
-                unsafe {
-                    crate::svm::exit_handler::svmb_crumb_post_d(0x190, reason as u64)
-                };
+            if ENABLE_CLOOP {
+                // C 循环仅在 VMRUN 失败时返回;返回即失败(哨兵记 0x190)
+                unsafe { super::asm::c_vmm_loop(vcpu, guest_pa, host_pa, stack_top) };
+                unsafe { crate::svm::exit_handler::svmb_crumb_post_d(0x190, 1) };
+            } else {
+                let reason =
+                    unsafe { svmb_vmm_loop_c(vcpu, guest_pa, host_pa, stack_top) };
+                if reason != 0 {
+                    unsafe {
+                        crate::svm::exit_handler::svmb_crumb_post_d(0x190, reason as u64)
+                    };
+                }
             }
         }
 
@@ -231,6 +244,9 @@ const INTERCEPT_BYPASS: bool = false; // r141 判决:零拦截存活=地基无�
 /// r129 判决:init-only 也死(0x3B #UD @ restore_context 的 stgi)⇒ 循环
 /// 无罪;r130 修复 SVME 清除时序后恢复 true 全功能验证。
 const ENABLE_VMRUN: bool = true; // r135 判决:init-only+双修复=存活
+/// r152 终局实验:链入 C 仓库 ml64 编译的 svm_entry.obj(_svmb_vmm_loop),
+/// 物理隔离 LLVM vs MSVC 代码生成变量。true=C 循环;false=Rust 版。
+const ENABLE_CLOOP: bool = true;
 const ENABLE_ONE_SHOT: bool = false; // r147:stgi 修复后全功能
 const ENABLE_ENTER_BODY: bool = true; // r132 判决:walk 无罪(存活)
 const ENABLE_RESTORE_DANCE: bool = true; // r133 判决:restore 舞蹈是冻结凶手(r134 修压栈序)

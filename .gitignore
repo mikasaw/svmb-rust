@@ -8,3 +8,5 @@ build/logs/*.txt
 build/logs/*.json
 build/logs/*.vmem
 refs/
+__pycache__/
+*.pyc

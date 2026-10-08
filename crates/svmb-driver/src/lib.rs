@@ -219,7 +219,7 @@ fn read_autostart_flag() -> u32 {
             buf.len() as u32,
             &mut retlen,
         );
-        ZwClose(key);
+        let _ = ZwClose(key);
         if st == 0 {
             let info = buf.as_ptr() as *const KEY_VALUE_PARTIAL_INFORMATION;
             // SAFETY: buf 尺寸按该结构+4 声明,查询成功时内核已回填
