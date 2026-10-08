@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/svmb-shared", "crates/svmbctl-rs"]
+# 驱动包独立于 workspace,与官方 windows-drivers-rs 对 examples 的处理一致:
+# 1) 一个 build graph 只支持一种 WDK 配置;
+# 2) 内核 crate 必须的 panic="abort" profile 不能波及用户态程序
+#    (profile 是 workspace 级的,混在一起会把 ctl 也变成 no-unwind)。
+exclude = ["crates/svmb-driver"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+rust-version = "1.91.0"
+repository = "https://example.invalid/svmb-rust"
+
+[workspace.dependencies]
+svmb-shared = { path = "crates/svmb-shared" }

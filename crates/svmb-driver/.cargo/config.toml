@@ -1,0 +1,7 @@
+# wdk-build 官方要求:内核驱动必须静态链接 CRT
+# (ConfigError::StaticCrtNotEnabled 的文档解法,见 wdk-build 源码)
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# r118: /Gy(function-level linking)形态是 C 侧定谳的毒;rustc msvc 默认
+# per-function 节,尝试 LLVM 层关闭(实验)

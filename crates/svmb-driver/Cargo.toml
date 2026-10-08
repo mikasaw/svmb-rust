@@ -1,0 +1,38 @@
+[package]
+name = "svmb-driver"
+description = "svmb-rust:AMD-V (SVM) 虚拟化 WDM 驱动(按 windows-drivers-rs 官方范式,C 版 svmb 的 Rust 移植骨架)"
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+rust-version = "1.91.0"
+publish = false
+
+# 官方范式必填:cargo-wdk / cargo-make 依赖它识别这是一个 WDM 驱动包
+[package.metadata.wdk.driver-model]
+driver-type = "WDM"
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+wdk-build = "0.5.1"
+
+[dependencies]
+svmb-shared = { path = "../svmb-shared" }
+wdk = "0.4.1"
+wdk-panic = "0.4.1"
+wdk-sys = "0.5.1"
+
+# 官方 sample 同款:让 `cargo test` 不链接 WDK 库也能编译
+[dev-dependencies]
+wdk-sys = { version = "0.5.1", features = ["test-stubs"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+lto = true
+panic = "abort"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "forbid"

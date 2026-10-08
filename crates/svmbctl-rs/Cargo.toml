@@ -1,0 +1,17 @@
+[package]
+name = "svmbctl-rs"
+description = "svmb-rust 用户态控制台(对应 C 版 svmbctl 骨架子集:info / selftest)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+svmb-shared.workspace = true
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security", # CreateFileW 签名引用 SECURITY_ATTRIBUTES,被此 feature 门控
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }

@@ -1,0 +1,11 @@
+[package]
+name = "svmb-shared"
+description = "svmb-rust R3<->R0 共享协议(镜像 C 版 svmb/shared/svmb_protocol.h)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+# 内核态(no_std)与用户态共用,不依赖 std

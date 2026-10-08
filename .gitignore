@@ -1,0 +1,10 @@
+/target/
+**/target/
+/x64/
+build/logs/*.dmp
+build/logs/*.log
+build/logs/*.bin
+build/logs/*.txt
+build/logs/*.json
+build/logs/*.vmem
+refs/
