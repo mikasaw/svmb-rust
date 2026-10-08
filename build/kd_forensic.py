@@ -27,8 +27,37 @@ SYMS = ("srv*C:\\symbols*https://msdl.microsoft.com/download/symbols;"
         r"C:\Users\www\AiCode\svmb-rust\crates\svmb-driver\target\debug\deps;"
         r"C:\Users\www\AiCode\svmb-rust\x64\Debug")
 LOGDIR = r"C:\Users\www\AiCode\svmb-rust\build\logs"
-DATA_RVA = 0x1E000          # .data section VA from PE headers
+DATA_RVA = 0x1E000          # legacy fallback only - real value comes from
+                            # data_rva() below (the section has moved between
+                            # builds: 0x1E000 -> 0x17000 broke two sessions)
 DATA_LEN = 0x280
+DRIVER_FILE = r"C:\Users\www\AiCode\svmb-rust\x64\Debug\svmb_rust.sys"
+
+
+def data_rva():
+    """PE-parse the .data VirtualAddress from the current driver build.
+
+    Hardcoded RVAs drifted twice already; always prefer the real section
+    table, fall back to the constant only if the file is unreadable.
+    """
+    import struct
+    try:
+        with open(DRIVER_FILE, "rb") as f:
+            blob = f.read(0x2000)
+        pe = struct.unpack_from("<I", blob, 0x3C)[0]
+        nsec = struct.unpack_from("<H", blob, pe + 6)[0]
+        opt = struct.unpack_from("<H", blob, pe + 20)[0]
+        if pe + 24 + opt + nsec * 40 > len(blob):
+            raise ValueError("section table beyond read window")
+        for i in range(nsec):
+            off = pe + 24 + opt + i * 40
+            name = blob[off:off + 8].rstrip(b"\x00").decode("ascii", "replace")
+            if name == ".data":
+                return struct.unpack_from("<I", blob, off + 12)[0]
+    except Exception:
+        pass
+    return DATA_RVA
+
 INFO_OFF = 0x3000           # VcpuInfo slot inside blob
 RING_QWORDS = 0x203         # 0x18 header + 128*0x20 entries = 0x1018 bytes
 
@@ -111,7 +140,7 @@ async def main(mode):
         m = re.match(r"\s*([0-9a-fA-F]{8,16})`([0-9a-fA-F]{8,16})", row)
         base = (int(m.group(1), 16) << 32) | int(m.group(2), 16)
         transcript["driver_base"] = hex(base)
-        data_va = base + DATA_RVA
+        data_va = base + data_rva()
         dq = await s.cmd(f"dq {data_va:x} L{DATA_LEN // 8:x}")
         transcript["data_dump"] = dq
         qwords = [int(x.replace("`", ""), 16) for x in
@@ -337,7 +366,7 @@ async def main(mode):
             if state["base"] and state["blob0"] is None:
                 try:
                     dq = await s.cmd(
-                        "dq %x L%x" % (state["base"] + DATA_RVA, DATA_LEN // 8),
+                        "dq %x L%x" % (state["base"] + data_rva(), DATA_LEN // 8),
                         timeout=120)
                     qwords = [int(x.replace("`", ""), 16) for x in
                               re.findall(r"[0-9a-fA-F]{8,16}`[0-9a-fA-F]{8,16}", dq)]
