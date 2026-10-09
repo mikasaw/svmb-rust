@@ -1,207 +1,208 @@
 # svmb-rust
 
-**A Rust port of a Windows AMD-V (SVM) hypervisor framework — stable and validated against the C reference baseline.**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20x64-blue.svg)](#)
+[![Arch](https://img.shields.io/badge/Arch-AMD--V%20%28SVM%29-red.svg)](#)
+[![Language](https://img.shields.io/badge/Language-Rust-orange.svg)](#)
 
-**Windows AMD-V (SVM) 虚拟化框架的 Rust 移植 —— 已稳定,并通过与 C 参照基线的对照验收。**
+A Rust port of a Windows kernel-mode AMD-V (SVM) hypervisor driver, built on the official [microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs) (wdk-rs) WDM pattern.
 
-[中文](#中文) | [English](#english)
+**Status: stable.** All 6 cores virtualized, exit throughput at C-baseline class (26,953 exits / 15 min vs C's 14,835 / 8 min), 3×15 min soak all green.
 
----
-
-## 中文
-
-### 项目简介
-
-svmb-rust 是一个 Windows 内核态 AMD-V (SVM) hypervisor 驱动的 Rust 移植,基于
-[microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs)(wdk-rs)
-官方 WDM 范式搭建。原 C 版 svmb 是一个可运行的 thin hypervisor(内核=OS 自身,
-NPT-off 基线);本项目将其完整移植到 Rust。
-
-**当前状态(2026-10-09):驱动稳定。** 6 核全虚拟化、exit 吞吐与 C 基线同级
-(26953 exits / 15min vs C 的 14835/8min)、3×15min soak 全绿。支持 AutoStart
-(服务启动即进入虚拟化,与 C 版 r30 语义对齐)。
-
-### 结构
-
-```
-svmb-rust/
-├── Cargo.toml              # workspace(shared + ctl;driver 独立,官方约束)
-├── rust-toolchain.toml     # stable MSVC
-├── crates/
-│   ├── svmb-shared/        # R3<->R0 协议(no_std)
-│   ├── svmb-driver/        # WDM 驱动(cdylib -> svmb_rust.sys)
-│   │   ├── ext_svm_entry.obj  # C 参照的 ml64 编译产物(A/B 验证用)
-│   │   └── src/svm/        # SVM 核心:asm(主循环)/exit_handler/vmcb/percpu/npt
-│   └── svmbctl-rs/         # 用户态控制台(info | selftest | cpuid)
-├── build/                  # 构建与 VM 测试脚本(见下)
-└── TASKS.md                # 任务台账
-```
-
-### 构建
-
-```bat
-build\build_rust.bat            :: Debug
-build\build_rust.bat Release
-```
-
-产物:`x64\<config>\svmb_rust.sys` + `svmbctl-rs.exe`。
-
-**工具链要求**:
-- Rust stable MSVC + **LLVM 17.x**(LLVM 23 会让 wdk-sys bindgen 布局断言炸裂)
-- WDK 10.0.28000(或任何有 km 内核头的版本)
-- VS MSVC 链接器 + 测试签名证书
-- 驱动包要求静态 CRT(已配置)
-
-### 部署到测试 VM
-
-```bat
-:: 1. 复制 build\vmenv.local.template.bat -> vmenv.local.bat,填入你的 VM 凭据
-:: 2. 推送驱动与控制台
-build\vm_push_rust.bat
-
-:: 3. guest 内创建并启动服务(AutoStart:启动即虚拟化)
-sc create svmbrust type= kernel binPath= <guest-path>\svmb_rust.sys
-sc start svmbrust
-
-:: 4. 查询状态
-svmbctl-rs.exe info
-```
-
-### 快速测试(单轮全自动)
-
-```bash
-cd build
-./round.sh <label>          # reset -> deploy -> sc start(=fire) -> observe 5min
-./round.sh <label> 30       # 15min soak
-```
-
-凭据从 git-ignored 的 `vmenv.local.sh` 读取(模板见 `vmenv.local.sh.template`)。
-
-### 与 C 参照的关系
-
-本项目在 bring-up 过程中使用了"C-obj 混链"技术(把 C 版汇编循环的 .obj 链入
-Rust 驱动做 A/B 对照)来物理隔离代码生成变量,最终定位并修复了 Rust 移植中的
-6 个寄存器/状态同步 bug。`ext_svm_entry.obj` 是该实验的遗留资产,可通过
-`ENABLE_CLOOP` 常量切换(默认 false = 纯 Rust 循环)。
-
-### 调试装置(可选)
-
-`build/` 下有一套 VM 调试循环脚本(reset 落证/哈希闸门/locale-proof 错误检测/
-双连探活),以及 KDNET 取证工具(`kd_forensic.py`,支持 --linkcheck/--forensic/
---arm/--watch/--patrol 模式)。这些是开发期资产,发布无需使用。
-
-### 致谢
-
-- [microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs) — WDM 驱动构建范式
-- [tandasat/SimpleSvm](https://github.com/tandasat/SimpleSvm) — SVM 语义蓝本
-- [barevisor](https://github.com/barevisor/barevisor) — 返回式 VMRUN 架构参照
-- [memN0ps/matrix-rs](https://github.com/memN0ps/matrix-rs) — Rust AMD-V 参考
-- AMD APM Vol.2 §15 — 架构规范
-
-### 许可
-
-见 [LICENSE](LICENSE)。
+[中文文档](README_zh-CN.md)
 
 ---
 
-## English
+## Table of Contents
 
-### Overview
+- [Overview](#overview)
+- [How It Works](#how-it-works)
+- [Project Layout](#project-layout)
+- [Prerequisites](#prerequisites)
+- [Build](#build)
+- [Deploy to a Test VM](#deploy-to-a-test-vm)
+- [Quick Test](#quick-test)
+- [VMRUN Loop Architecture](#vmrun-loop-architecture)
+- [Debug Tooling](#debug-tooling)
+- [Troubleshooting](#troubleshooting)
+- [Acknowledgments](#acknowledgments)
+- [License](#license)
 
-svmb-rust is a Rust port of a Windows kernel-mode AMD-V (SVM) hypervisor
-driver, built on the official
-[microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs)
-(wdk-rs) WDM pattern. The original C svmb is a working thin hypervisor
-(kernel = the OS itself, NPT-off baseline); this project ports it fully
-to Rust.
+---
 
-**Current status (2026-10-09): driver stable.** All 6 cores virtualized,
-exit throughput at C-baseline class (26953 exits / 15min vs C's 14835/8min),
-3×15min soak all green. AutoStart supported (service start enters
-virtualization immediately, matching the C r30 semantics).
+## Overview
 
-### Layout
+svmb-rust is a thin hypervisor: the kernel is the OS itself (no separate guest), running in AMD-V SVM mode with NPT disabled. The original C svmb is a working reference implementation; this project ports it fully to Rust.
+
+Key features:
+
+- **6-core virtualization** on Windows 10 x64 (build 18362+)
+- **AutoStart**: service start enters virtualization at `DriverEntry` (no manual trigger)
+- **CPUID / MSR interception** with transparent passthrough
+- **VMRUN loop** in hand-written assembly, C-shaped register discipline
+- **C-obj A/B bridge**: the C reference loop can be linked in for comparison (`ENABLE_CLOOP`)
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Windows Kernel                     │
+│  ┌─────────────┐  ┌──────────────────────────────┐  │
+│  │ svmb_rust   │  │   Guest (the OS itself)      │  │
+│  │   .sys      │  │   runs inside VMRUN          │  │
+│  │             │  │                              │  │
+│  │ VMM loop    │──│─ #VMEXIT ──→ exit handler   │  │
+│  │ (asm)       │  │   ↑            (Rust)        │  │
+│  │             │──│─ VMRUN ────←──────────────── │  │
+│  └─────────────┘  └──────────────────────────────┘  │
+│       │                        │                     │
+│  VMCB (guest)            VMCB (host snapshot)       │
+│  HSAVE_PA                VcpuContext blob            │
+└─────────────────────────────────────────────────────┘
+```
+
+Each CPU core runs a tight loop: `VMRUN` → guest executes → `#VMEXIT` → save guest state → handle exit (CPUID/MSR emulation) → restore guest state → `VMRUN` again. All interrupts flow to the guest via GIF management during VMRUN.
+
+## Project Layout
 
 ```
 svmb-rust/
-├── Cargo.toml              # workspace (shared + ctl; driver standalone)
-├── rust-toolchain.toml     # stable MSVC
+├── Cargo.toml                  # workspace (shared + ctl; driver standalone)
+├── rust-toolchain.toml         # stable MSVC
+├── LICENSE                     # MIT
 ├── crates/
-│   ├── svmb-shared/        # R3<->R0 protocol (no_std)
-│   ├── svmb-driver/        # WDM driver (cdylib -> svmb_rust.sys)
-│   │   ├── ext_svm_entry.obj  # ml64-compiled C reference loop (A/B asset)
-│   │   └── src/svm/        # SVM core: asm (main loop) / exit_handler / vmcb / percpu / npt
-│   └── svmbctl-rs/         # user-mode console (info | selftest | cpuid)
-├── build/                  # build & VM test scripts
-└── TASKS.md                # task ledger
+│   ├── svmb-shared/            # R3↔R0 protocol (no_std)
+│   ├── svmb-driver/            # WDM driver (cdylib → svmb_rust.sys)
+│   │   └── src/svm/
+│   │       ├── asm.rs          # VMRUN loop + register plumbing
+│   │       ├── exit_handler.rs # CPUID/MSR emulation + exit dispatch
+│   │       ├── hypervisor.rs   # start/stop + enter_core + VMCB config
+│   │       ├── vmcb.rs         # VMCB field offsets + accessors
+│   │       ├── percpu.rs       # per-core VcpuContext blob
+│   │       └── msrpm.rs        # MSR permission bitmap
+│   └── svmbctl-rs/             # user-mode console (info | selftest | cpuid)
+├── build/
+│   ├── build_rust.bat          # build + rename + test-sign
+│   ├── round.sh                # automated test round (reset→deploy→observe)
+│   ├── vm_push_rust.bat        # push driver to guest VM
+│   ├── vm_svc_create.bat       # sc create kernel service
+│   ├── vm_svc_start.bat        # sc start (= fire via AutoStart)
+│   └── kd_forensic.py          # KDNET forensic tool (multi-mode)
+└── TASKS.md                    # task ledger
 ```
 
-### Build
+## Prerequisites
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Rust | stable MSVC | `rust-toolchain.toml` pinned |
+| LLVM | **17.x** | 23 breaks wdk-sys bindgen layout asserts |
+| WDK | 10.0.28000+ | must have km kernel headers |
+| Visual Studio | MSVC linker | any recent version |
+| Test cert | any | for `signtool` test-signing |
+| VMware Workstation | any | for the test VM (or any hypervisor with nested AMD-V) |
+
+The driver package requires static CRT: `crates/svmb-driver/.cargo/config.toml` already sets `target-feature=+crt-static`.
+
+## Build
 
 ```bat
-build\build_rust.bat            :: Debug
+build\build_rust.bat              & :: Debug (default)
 build\build_rust.bat Release
 ```
 
-Artifacts: `x64\<config>\svmb_rust.sys` + `svmbctl-rs.exe`.
+Artifacts: `x64\<config>\svmb_rust.sys` + `x64\<config>\svmbctl-rs.exe`.
 
-**Toolchain requirements**:
-- Rust stable MSVC + **LLVM 17.x** (LLVM 23 breaks wdk-sys bindgen layout asserts)
-- WDK 10.0.28000 (or any version with km kernel headers)
-- VS MSVC linker + test-signing certificate
-- Static CRT for the driver package (already configured)
+## Deploy to a Test VM
 
-### Deploy to a test VM
+### 1. Configure credentials
+
+Copy the template and fill in your VM credentials:
 
 ```bat
-:: 1. Copy build\vmenv.local.template.bat -> vmenv.local.bat, fill in credentials
-:: 2. Push driver + console
-build\vm_push_rust.bat
-
-:: 3. In the guest: create & start the service (AutoStart = instant virtualization)
-sc create svmbrust type= kernel binPath= <guest-path>\svmb_rust.sys
-sc start svmbrust
-
-:: 4. Query status
-svmbctl-rs.exe info
+copy build\vmenv.local.template.bat build\vmenv.local.bat
+:: Edit vmenv.local.bat: VM_VMX, VM_USER, VM_PASS, GUEST_TEST_DIR, KDNET_KEY
 ```
 
-### Quick test (fully automated single round)
+### 2. Push and start
+
+```bat
+build\vm_push_rust.bat
+build\vm_svc_create.bat
+build\vm_svc_start.bat    :: AutoStart: enters virtualization at DriverEntry
+```
+
+### 3. Verify
+
+```bat
+svmbctl-rs.exe info
+:: Expected: hv_state=2, cores_virt=6, exit_counter > 0
+```
+
+## Quick Test
+
+One fully automated round (reset → deploy → start → observe 5 min):
 
 ```bash
 cd build
-./round.sh <label>          # reset -> deploy -> sc start (=fire) -> observe 5min
-./round.sh <label> 30       # 15min soak
+./round.sh my_test_label
 ```
 
-Credentials are read from the git-ignored `vmenv.local.sh`
-(see `vmenv.local.sh.template`).
+15-minute soak test:
 
-### Relationship to the C reference
+```bash
+./round.sh my_soak_label 30
+```
 
-During bring-up, a "C-obj mixed link" technique was used (linking the C
-assembly loop's .obj into the Rust driver for A/B comparison) to physically
-isolate the code-generation variable, ultimately locating and fixing 6
-register/state synchronization bugs in the Rust port. `ext_svm_entry.obj`
-is the remaining asset from that experiment, toggleable via the
-`ENABLE_CLOOP` constant (default false = pure Rust loop).
+## VMRUN Loop Architecture
 
-### Debug tooling (optional)
+The main loop is hand-written assembly in `asm.rs` (`svmb_vmm_loop_c`). Per cycle:
 
-`build/` contains a VM debug-loop script suite (reset evidence gates /
-hash verification / locale-proof error detection / dual-miss aliveness)
-and KDNET forensic tools (`kd_forensic.py`, supporting --linkcheck /
---forensic / --arm / --watch / --patrol modes). These are development-time
-assets; not needed for normal use.
+1. `vmload` guest segment/MSR state
+2. `vmrun` — enter guest mode
+3. Check exit code (failure / sentinel)
+4. `vmsave` guest state → guest VMCB
+5. `vmload` host state
+6. Save guest GPRs/XMMs to mirror
+7. Sync VMCB save-area 4 fields (RIP/RSP/RAX/RFLAGS) → mirror
+8. Call Rust exit handler (CPUID/MSR emulation)
+9. Write mirror → VMCB 4 fields + sentinel
+10. Restore guest GPRs/XMMs from mirror
+11. `vmsave` host state (capture handler drift)
+12. Jump to step 1
 
-### Acknowledgments
+**Critical register discipline**: VMRUN does not reload `rbx/rcx/rdx/r8-r15` from the VMCB — they pass through physically. Only `rax` is safe to clobber between RESTORE and VMRUN. Violating this leaks host residue into the guest (see the project's debugging history for details).
+
+## Debug Tooling
+
+`build/kd_forensic.py` is a multi-mode KDNET forensic tool:
+
+```bash
+python kd_forensic.py --linkcheck    # verify debug link
+python kd_forensic.py --forensic     # post-crash dump
+python kd_forensic.py --watch        # passive bugcheck watch
+python kd_forensic.py --patrol       # periodic freeze sampling
+```
+
+Requires the `SVMB_KDNET` environment variable and the `mcp` Python package.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `sc start` returns error 193 | Guest .sys file corrupted | Re-push with `vm_push_rust.bat` + verify hash |
+| `sc start` returns error 577 | Test signing not enabled | `bcdedit /set testsigning on` + reboot |
+| VM freezes after `sc start` | Check VMRUN loop register discipline | See architecture section above |
+| No KDNET output | Key not set / wrong port | Check `bcdedit /dbgsettings` + env var |
+
+## Acknowledgments
 
 - [microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs) — WDM driver build pattern
 - [tandasat/SimpleSvm](https://github.com/tandasat/SimpleSvm) — SVM semantics blueprint
 - [barevisor](https://github.com/barevisor/barevisor) — return-style VMRUN architecture reference
 - [memN0ps/matrix-rs](https://github.com/memN0ps/matrix-rs) — Rust AMD-V reference
-- AMD APM Vol.2 §15 — architecture specification
+- AMD Architecture Programmer's Manual Vol. 2 §15 — architecture specification
 
-### License
+## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE)
