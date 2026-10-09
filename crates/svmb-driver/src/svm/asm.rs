@@ -740,6 +740,16 @@ unsafe extern "C" {
         vmm_stack_top: *mut u8,
     );
 
+    /// r152:混链 C 版主循环(svm_entry.obj 的 _svmb_vmm_loop;成功不返回,
+    /// 返回=VMRUN 失败;leaving 走 asm 内就地恢复路径)
+    #[link_name = "_svmb_vmm_loop"]
+    pub unsafe fn c_vmm_loop(
+        vcpu: *mut crate::svm::percpu::VcpuContext,
+        guest_vmcb_pa: u64,
+        host_vmcb_pa: u64,
+        vmm_stack_top: *mut u8,
+    );
+
     /// r151:C 型主循环(结构移植);成功不返回;eax=0 离开请求/非 0=VMRUN 失败码
     pub unsafe fn svmb_vmm_loop_c(
         vcpu: *mut crate::svm::percpu::VcpuContext,

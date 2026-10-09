@@ -472,19 +472,19 @@ pub unsafe extern "C" fn svmb_vm_exit_entry_c(vcpu: *mut VcpuContext, regs: *mut
         (*regs).extra1 = 0;
         (*regs).extra2 = 0;
 
-        let leaving = handle_exit(vcpu, regs);
+        // r152 验收修正:不在 shim 里置 Extra1/Extra2 —— C asm 的
+        // State==Leaving 自退出机器(内核 rip 门/vmload guest/清 SVME/
+        // V_TPR->CR8/State=Off)才是所有 leaving 流程(stop 与超级调用
+        // EXIT_VMM 同一状态机)的正确出口;shim 劫持会掉 State=Off、
+        // 0x0A 用户 rip 恢复窗口、陈旧 KERNEL_GS_BASE 三连坑。
+        // LEAVING 态也必须照常服务 exit(C dispatcher 语义):分发内核
+        // 无条件执行,leaving 只由 asm 侧消费。
+        dispatch_exit(vcpu, regs);
 
         vmcb.set_u64(save_off::RIP, (*regs).rip);
         vmcb.set_u64(save_off::RSP, (*regs).rsp);
         vmcb.set_u64(save_off::RAX, (*regs).rax);
         vmcb.set_u64(save_off::RFLAGS, (*regs).rflags);
-
-        if leaving {
-            // C asm 的 exit_virtualization:Extra1≠0 触发,Extra2 为恢复 rip;
-            // 以被打断 rip 就地恢复(近似 C r28 语义)
-            (*regs).extra1 = regs as u64;
-            (*regs).extra2 = (*regs).rip;
-        }
     }
 }
 
@@ -495,11 +495,25 @@ pub unsafe extern "C" fn svmb_vm_exit_entry_c(vcpu: *mut VcpuContext, regs: *mut
 /// vcpu/regs 有效;GIF=0(vmrun 刚返回),不得阻塞/拿锁
 pub unsafe fn handle_exit(vcpu: *mut VcpuContext, regs: *mut GuestRegs) -> bool {
     unsafe {
-        // Stop() 请求本核退出(IPI 的 CPUID exit 会落到这里)
+        // Stop() 请求本核退出(IPI 的 CPUID exit 会落到这里)。
+        // r151 Rust 循环路径专用:C 混链桥(SvmbVmExitEntry)走 dispatch_exit
+        // ——LEAVING 态也要服务 exit,leaving 由 asm 自退出机器消费。
         if (*vcpu).info.state.load(core::sync::atomic::Ordering::Acquire) == vcpu_state::LEAVING {
             return true;
         }
+        dispatch_exit(vcpu, regs);
+        (*vcpu).info.state.load(core::sync::atomic::Ordering::Acquire) == vcpu_state::LEAVING
+    }
+}
 
+/// exit 分发内核(C dispatcher 语义):不管 LEAVING 态,无条件服务当前
+/// exit(crumbs/match/rip 前进/计数)。C 混链桥每圈调用;leaving 信号由
+/// asm 侧读 VcpuInfo.state 自行消费。
+///
+/// # Safety
+/// vcpu/regs 有效;GIF=0(vmrun 刚返回),不得阻塞/拿锁
+pub unsafe fn dispatch_exit(vcpu: *mut VcpuContext, regs: *mut GuestRegs) {
+    unsafe {
         let vmcb = vmcb_of(vcpu);
 
         // r142 判决格:拦截开 + 处理器内容清零 —— 只读 nrip 前进,无
@@ -511,7 +525,7 @@ pub unsafe fn handle_exit(vcpu: *mut VcpuContext, regs: *mut GuestRegs) -> bool 
             if nrip != 0 {
                 (*regs).rip = nrip;
             }
-            return false;
+            return;
         }
 
         if ENABLE_CRUMBS {
@@ -584,9 +598,7 @@ pub unsafe fn handle_exit(vcpu: *mut VcpuContext, regs: *mut GuestRegs) -> bool 
         if ENABLE_CRUMBS {
             crumb_post(0x183);
         }
-        devirt
-            || (*vcpu).info.state.load(core::sync::atomic::Ordering::Acquire)
-                == vcpu_state::LEAVING
+        let _ = devirt;
     }
 }
 ///

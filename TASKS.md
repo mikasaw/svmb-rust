@@ -6,7 +6,7 @@
 
 ## 主线:首-exit 冻结终局定位(r151 后唯一剩余差分=LLVM vs MSVC 二进制本身)
 
-- [ ] **T4 r152a:C-obj 混链终局实验**(最高优先)
+- [x] **T4 r152a:C-obj 混链终局实验 —— 已定谳:存活!**(R152_CLOOP SURVIVED T+308s,hv_state=2/6 核/exit_counter=13956=C 基线级;凶手=Rust 版 asm 循环本体;R2/R3 确认轮进行中;待 T4b 指令级病灶定位)
   - 内容:把 C 仓库的 `svm_entry.asm` 编成 COFF obj(MASM/ml64,offsets.inc 就位),
     以 staticlib 方式链进 svmb-driver(build.rs 加 `cargo:rustc-link-search` + 打包 .lib),
     Rust 侧 extern 到 C 符号 `_svmb_vmm_loop`,enter_core 换调之(替代 svmb_vmm_loop_c)。
@@ -26,20 +26,20 @@
 
 ## 装置与代码卫生(低风险,先行建立循环节奏)
 
-- [~] **T1 round.sh 适配 AutoStart 流程**
+- [x] **T1 round.sh 适配 AutoStart 流程**(commit 2428e8a)
   - 内容:sc start 即 fire(AutoStart 已上);去掉 sleep 150 与 vm_ctl_run start;
     保留 reset→落证→alive→clean→push→哈希→create→start(=fire)→观测;
     观测首点提前到 T+10s(sc start 后 box 可能秒死)。
   - 判据:脚本跑通一轮,rounds.txt 记录格式不变。
   - 验收:子代理 review 脚本逻辑(闸门完整性、无 ctl start 残留)。
 
-- [ ] **T2 kd_forensic.py 的 .data RVA 动态化**
+- [x] **T2 kd_forensic.py 的 .data RVA 动态化**(commit 85b461e)
   - 内容:dump_seq 用 PE 节表动态解析 svmb_rust.sys 的 .data RVA(替代硬编码;
     已两次踩 0x1E000→0x17000 漂移坑)。
   - 判据:python 语法过+对当前 .sys 解析出 0x17000。
   - 验收:子代理 review 解析正确性(节表结构/回退路径)。
 
-- [ ] **T3 死代码清理与开关整理**
+- [x] **T3 死代码清理与开关整理**(commit 6689116)
   - 内容:r151 后确认未用的:旧 svmb_vmm_loop(Rust 侧 extern 与 asm 若仍保留)、
     svmb_run_guest(r148 后未用)、ENABLE_ONE_SHOT 分支、ENABLE_HANDLER_ADVANCE_ONLY 分支、
     CPUID_ONLY/MSR_ONLY 门(恢复完整拦截后)。**保守策略:标注 #[allow(dead_code)] +
