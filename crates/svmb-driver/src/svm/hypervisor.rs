@@ -246,7 +246,7 @@ const INTERCEPT_BYPASS: bool = false; // r141 判决:零拦截存活=地基无�
 const ENABLE_VMRUN: bool = true; // r135 判决:init-only+双修复=存活
 /// r152 终局实验:链入 C 仓库 ml64 编译的 svm_entry.obj(_svmb_vmm_loop),
 /// 物理隔离 LLVM vs MSVC 代码生成变量。true=C 循环;false=Rust 版。
-const ENABLE_CLOOP: bool = true;
+const ENABLE_CLOOP: bool = false; // T4b:验证 Rust 循环修复(VMCB save 4 字段回读镜像)
 const ENABLE_ONE_SHOT: bool = false; // r147:stgi 修复后全功能
 const ENABLE_ENTER_BODY: bool = true; // r132 判决:walk 无罪(存活)
 const ENABLE_RESTORE_DANCE: bool = true; // r133 判决:restore 舞蹈是冻结凶手(r134 修压栈序)

@@ -640,6 +640,24 @@ c_enter_guest:
     mov rax, [rsp + 0x10]
     vmload rax                   // host 状态
 
+    // T4b 根因修复:VMCB save 4 字段 -> 镜像(C shim 头部语义)。r151 起
+    // 该循环漏了这一步:硬件在 #VMEXIT 把 guest 的 RIP/RSP/RAX/RFLAGS
+    // 写进 VMCB save 区,但镜像不同步,圈首的镜像->VMCB 写就会把
+    // enter 时刻的陈旧 RSP/RFLAGS/RAX 灌回 guest(用户态线程扛着内核
+    // 栈重入)= CPL3@内核VA / MISSING_GSFRAME 全系指纹。C 混链之所以
+    // 存活,正是因为 SvmbVmExitEntry shim 每圈做了这个回读。
+    mov rax, [rsp]
+    mov r10, [rax]               // guest_vmcb VA
+    lea r11, [rax + 0x4000]      // &regs
+    mov rcx, [r10 + 0x578]
+    mov [r11 + 0x180], rcx       // RIP
+    mov rcx, [r10 + 0x5D8]
+    mov [r11 + 0x188], rcx       // RSP
+    mov rcx, [r10 + 0x5F8]
+    mov [r11 + 0x170], rcx       // RAX
+    mov rcx, [r10 + 0x570]
+    mov [r11 + 0x178], rcx       // RFLAGS
+
     mov rax, [rsp]
     add rax, 0x4000
     movaps xmmword ptr [rax + 0x000], xmm0
