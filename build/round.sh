@@ -5,10 +5,15 @@
 # DriverEntry, so there is NO idle window and NO ctl start step anymore.
 LABEL="$1"
 PROBES="${2:-10}"   # 30s observation probes (default 10 = ~5min; soak = 30)
-B=/c/Users/www/AiCode/svmb-rust/build
+B="$(cd "$(dirname "$0")" && pwd)"
 VMRUN="/c/Program Files (x86)/VMware/VMware Workstation/vmrun.exe"
-VMX="C:\\Users\\www\\Documents\\Virtual Machines\\Windows 10 x64\\Windows 10 x64.vmx"
-VLOG="/c/Users/www/Documents/Virtual Machines/Windows 10 x64/vmware.log"
+# credentials: from git-ignored vmenv.local.sh (see vmenv.local.sh.template)
+[ -f "$(dirname "$0")/vmenv.local.sh" ] && . "$(dirname "$0")/vmenv.local.sh"
+VM_GU="${VM_GU:-CHANGEME}"; VM_GP="${VM_GP:-CHANGEME}"
+# guest desktop in Windows form (single backslashes) for vmrun path args
+GUEST_DESK_WIN="${GUEST_DESK_WIN:-C:\\Users\\CHANGEME\\Desktop}"
+VMX="${VMX_WIN:-C:\\Users\\CHANGEME\\Documents\\Virtual Machines\\VM\\VM.vmx}"
+VLOG="${VM_LOG:-/c/CHANGEME/vmware.log}"
 cd "$B" || exit 1
 
 # reset with evidence via count-delta: rc alone has lied (silent reset failure
@@ -16,7 +21,7 @@ cd "$B" || exit 1
 # writes 500-2000 log lines within 4s, so a tail-window grep can never see
 # the reset line - compare the total count instead.
 RESETS_BEFORE=$(grep -ac "VMAutomation_Reset" "$VLOG" 2>/dev/null); RESETS_BEFORE=${RESETS_BEFORE:-0}
-"$VMRUN" -T ws reset "C:\Users\www\Documents\Virtual Machines\Windows 10 x64\Windows 10 x64.vmx" hard >/dev/null 2>&1
+"$VMRUN" -T ws reset "$VMX" hard >/dev/null 2>&1
 sleep 4
 RESETS_AFTER=$(grep -ac "VMAutomation_Reset" "$VLOG" 2>/dev/null); RESETS_AFTER=${RESETS_AFTER:-0}
 if [ "$RESETS_AFTER" -le "$RESETS_BEFORE" ]; then
@@ -27,7 +32,7 @@ for i in $(seq 1 16); do timeout 30 cmd.exe //c vm_alive.bat >/dev/null 2>&1 && 
 cmd.exe //c vm_svc_clean.bat >/dev/null 2>&1
 # truncate the guest steps log: it is append-only and never cleared, so a
 # stale hash/error from an earlier round would poison this round's gate
-timeout 60 "$VMRUN" -T ws -gu wwa -gp 123 runProgramInGuest "$VMX" "C:\\Windows\\System32\\cmd.exe" "/c type nul > C:\\Users\\wwa\\Desktop\\svmb_rust_steps.log < NUL" >/dev/null 2>&1
+timeout 60 "$VMRUN" -T ws -gu "$VM_GU" -gp "$VM_GP" runProgramInGuest "$VMX" "C:\\Windows\\System32\\cmd.exe" "/c type nul > $GUEST_DESK_WIN\\svmb_rust_steps.log < NUL" >/dev/null 2>&1
 cmd.exe //c vm_push_rust.bat >/dev/null 2>&1 || { echo "$LABEL PUSH_FAIL" >> logs/rounds.txt; exit 1; }
 cmd.exe //c vm_svc_create.bat >/dev/null 2>&1
 
@@ -42,7 +47,7 @@ sleep 8
 # fast death may eat the log entirely. That outcome is crash data, not a
 # LOAD_FAIL. Locale-proof pattern: sc query's WIN32_EXIT_CODE field name is
 # unlocalized (the guest is GBK; grepping localized words can never match).
-timeout 90 "$VMRUN" -T ws -gu wwa -gp 123 CopyFileFromGuestToHost "$VMX" "C:\\Users\\wwa\\Desktop\\svmb_rust_steps.log" "$B\\logs\\svc_last.log" >/dev/null 2>&1
+timeout 90 "$VMRUN" -T ws -gu "$VM_GU" -gp "$VM_GP" CopyFileFromGuestToHost "$VMX" "$GUEST_DESK_WIN\\svmb_rust_steps.log" "$B\\logs\\svc_last.log" >/dev/null 2>&1
 if grep -aqE "WIN32_EXIT_CODE +: +(193|577)" logs/svc_last.log 2>/dev/null; then
   echo "$LABEL LOAD_FAIL_193_or_577 (bad guest file or signature)" >> logs/rounds.txt
   exit 1

@@ -1,0 +1,6 @@
+# COPY to build/vmenv.local.sh (git-ignored) and fill in.
+# Consumed by round.sh / c_round.sh.
+export VM_GU="your-windows-username"
+export VM_GP="your-windows-password"
+# ADD to your vmenv.local.sh (git-ignored) - consumed by round.sh
+export GUEST_DESK_WIN="C:\Users\your-windows-username\Desktop"

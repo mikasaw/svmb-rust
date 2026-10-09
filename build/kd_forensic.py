@@ -20,18 +20,21 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
-CONNECTION = "net:port=50000,key=2sazdj33vv3ym.14h4ybb3lujun.aoyihkwsbg1b.2xxysisdr5i28"
+_REPO = Path(__file__).resolve().parent.parent
+CONNECTION = os.environ.get("SVMB_KDNET", "net:port=50000,key=SET-SVMB_KDNET-ENV")
 SYMS = ("srv*C:\\symbols*https://msdl.microsoft.com/download/symbols;"
-        r"C:\Users\www\AiCode\svmb-rust\crates\svmb-driver\target\debug;"
-        r"C:\Users\www\AiCode\svmb-rust\crates\svmb-driver\target\debug\deps;"
-        r"C:\Users\www\AiCode\svmb-rust\x64\Debug")
-LOGDIR = r"C:\Users\www\AiCode\svmb-rust\build\logs"
+        + ";".join(str(p) for p in [
+            _REPO / "crates" / "svmb-driver" / "target" / "debug",
+            _REPO / "crates" / "svmb-driver" / "target" / "debug" / "deps",
+            _REPO / "x64" / "Debug"]))
+LOGDIR = str(_REPO / "build" / "logs")
 DATA_RVA = 0x1E000          # legacy fallback only - real value comes from
                             # data_rva() below (the section has moved between
                             # builds: 0x1E000 -> 0x17000 broke two sessions)
 DATA_LEN = 0x280
-DRIVER_FILE = r"C:\Users\www\AiCode\svmb-rust\x64\Debug\svmb_rust.sys"
+DRIVER_FILE = str(_REPO / "x64" / "Debug" / "svmb_rust.sys")
 
 
 def data_rva():
@@ -108,10 +111,10 @@ async def main(mode):
 
     env = dict(os.environ)
     env["_NT_SYMBOL_PATH"] = (
-        "SRV*C:\\Users\\www\\AiCode\\windbg-test\\sym*https://msdl.microsoft.com/download/symbols"
+        "srv*C:\\symbols*https://msdl.microsoft.com/download/symbols"
     )
     params = StdioServerParameters(
-        command=r"C:\Python314\python.exe",
+        command=sys.executable,
         args=["-m", "mcp_windbg", "--timeout", "180"],
         env=env,
     )

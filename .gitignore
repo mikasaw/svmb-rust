@@ -10,3 +10,17 @@ build/logs/*.vmem
 refs/
 __pycache__/
 *.pyc
+build/vmenv.local.bat
+build/vmenv.local.sh
+build/c_*.bat
+build/c_round.sh
+build/disasm_*.bat
+build/dumpbin_*.bat
+build/sym_vcpus.bat
+build/watch_kd.bat
+build/vmcb_diff.py
+build/parse_hist.py
+build/cloop_patch.py
+build/cobj/
+build/kd_base.bat
+crates/svmb-driver/ext_svm_entry.obj

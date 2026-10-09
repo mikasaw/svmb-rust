@@ -6,7 +6,7 @@
 windbg-mcp 工具进行,禁止直接在 shell 里启动裸 `kd.exe` / `cdb.exe` 连接 VM。**
 
 - 连接 VM: `mcp__mcp_windbg__open_kd_session`(connection_string =
-  `net:port=50000,key=2sazdj33vv3ym.14h4ybb3lujun.aoyihkwsbg1b.2xxysisdr5i28`)
+  `net:port=50000,key=<your-kdnet-key>`;本机实际值在 git-ignored 的 build/vmenv.local.bat)
 - 执行命令: `run_kd_command`;冻结目标: `send_ctrl_break`;等待停机: `wait_for_break`;
   结束必须 `close_kd_session`(释放 UDP 50000,防僵尸进程阻塞下次连接)
 - 纯离线静态分析(对 .sys 查符号 RVA、对 .dmp 文件 `cdb -z`)不接触运行中的 VM,
