@@ -4,6 +4,7 @@
 # r149+: AutoStart is on by default - service start enters virtualization at
 # DriverEntry, so there is NO idle window and NO ctl start step anymore.
 LABEL="$1"
+PROBES="${2:-10}"   # 30s observation probes (default 10 = ~5min; soak = 30)
 B=/c/Users/www/AiCode/svmb-rust/build
 VMRUN="/c/Program Files (x86)/VMware/VMware Workstation/vmrun.exe"
 VMX="C:\\Users\\www\\Documents\\Virtual Machines\\Windows 10 x64\\Windows 10 x64.vmx"
@@ -50,7 +51,7 @@ fi
 # observation: a single slow-Tools blip must not flip a surviving round to
 # CRASHED (Tools flapping is documented) - require two consecutive misses.
 MISSES=0
-for i in $(seq 1 10); do
+for i in $(seq 1 "$PROBES"); do
   sleep 30
   if timeout 20 cmd.exe //c vm_alive.bat >/dev/null 2>&1; then
     MISSES=0
@@ -68,4 +69,4 @@ if [ "$MISSES" -gt 0 ]; then
   sleep 20
   timeout 20 cmd.exe //c vm_alive.bat >/dev/null 2>&1 || { echo "$LABEL CRASHED_AT T+~330s (trailing miss confirmed; fired $FIRE_TS)" >> logs/rounds.txt; exit 0; }
 fi
-echo "$LABEL SURVIVED T+308s (fired $FIRE_TS)" >> logs/rounds.txt
+echo "$LABEL SURVIVED T+$((8+PROBES*30))s (fired $FIRE_TS)" >> logs/rounds.txt

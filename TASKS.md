@@ -21,8 +21,7 @@
   - 判据:垫后仍稳(r123 后装置可信)⇒ C 稳定性非布局敏感 ⇒ 布局理论排除;
     垫后崩 ⇒ vhv 对 L1 驱动映像布局敏感(重大,回到 r118-r119 语境但用干净数据)。
 
-- [ ] **T6 治愈后验收流程**(依赖 T4/T5 结论)
-  - crumbs 重启(ENABLE_CRUMBS=true)+ 3 轮 15min soak;判据对齐 C 基线(14835 exits/8min 级)。
+- [x] **T6 验收达成**:ENABLE_CRUMBS=true + 3×15min soak 全绿(908s×3;6 核/26953 exits/15min = C 基线级)
 
 ## 装置与代码卫生(低风险,先行建立循环节奏)
 
@@ -47,7 +46,7 @@
   - 判据:构建过+警告减少+行为零变化(const 全部维持现值)。
   - 验收:子代理 review 确认无活路径被误删。
 
-- [ ] **T7 cmd_info_raw_counter helper bug**(低优先)
+- [ ] **T7 cmd_info_raw_counter helper bug**(低优先;唯一遗留任务)
   - 记忆载:"cmd_info_raw_counter helper 有 bug 未修,用 shell 层差分"。定位修复,补差分测试。
 
 ## 环境例程(每轮 VM 任务前置)

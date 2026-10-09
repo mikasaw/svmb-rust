@@ -227,7 +227,7 @@ const ENABLE_CPUID_EXEC: bool = true;
 /// (r107 freeze flight recorder)+ asm r113 bank-everything。C 版 Debug
 /// 形态每 exit 真实调用这些;Rust 版此前整体省略,是"每轮恒在"的最大
 /// 机器行为差异(崩点 3s~22min 宽分布下,单轮 A/B 均不可信,先对齐形态)。
-const ENABLE_CRUMBS: bool = false; // r143a:反向二分首刀(r140 全 handler=冻结,r142 空=bugcheck)
+const ENABLE_CRUMBS: bool = true; // T6 soak:崩案收束后重开(0x183/0x185 每圈信标)
 
 /// r142 判决格:true = 处理器内容清零(只前进 rip)。r141 已证零拦截存活,
 /// 凶手在拦截/exit 路径;本格分离裸循环 vs 处理器内容。
