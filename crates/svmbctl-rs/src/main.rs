@@ -122,7 +122,7 @@ fn cmd_info() -> Result<(), String> {
     let mut buf = vec![0u8; size_of::<SvmbInfo>()];
     let ret = ioctl(handle, SVMB_IOCTL_GET_INFO, &mut buf)?;
     // SAFETY: 驱动按协议写入完整的 SvmbInfo
-    let info: SvmbInfo = unsafe { core::ptr::read(buf.as_ptr().cast()) };
+    let info: SvmbInfo = unsafe { core::ptr::read_unaligned(buf.as_ptr().cast()) };
     // SAFETY: HANDLE 由 CreateFileW 返回
     unsafe { CloseHandle(handle) };
 
@@ -148,12 +148,24 @@ fn cmd_info() -> Result<(), String> {
 fn cmd_info_raw_counter() -> Option<u64> {
     let handle = open_device().ok()?;
     let mut buf = vec![0u8; size_of::<SvmbInfo>()];
-    let ret = ioctl(handle, SVMB_IOCTL_GET_INFO, &mut buf).ok()?;
+    let ret = match ioctl(handle, SVMB_IOCTL_GET_INFO, &mut buf) {
+        Ok(r) => r,
+        Err(_) => {
+            // SAFETY: HANDLE 由 CreateFileW 返回
+            unsafe { CloseHandle(handle) };
+            return None;
+        }
+    };
     // SAFETY: 驱动按协议写入完整的 SvmbInfo
-    let info: SvmbInfo = unsafe { core::ptr::read(buf.as_ptr().cast()) };
+    let info: SvmbInfo = unsafe { core::ptr::read_unaligned(buf.as_ptr().cast()) };
     // SAFETY: HANDLE 由 CreateFileW 返回
     unsafe { CloseHandle(handle) };
-    let _ = ret;
+    // T7:与 cmd_info 同款校验 —— 此前裸读,短读/错 magic 时静默返回
+    // 垃圾计数(配合调用侧的 unwrap_or(u64::MAX) 会把失败伪装成
+    // delta=0,被误读为"无 exit";r115 只得用 shell 层差分规避)
+    if ret != size_of::<SvmbInfo>() as u32 || info.magic != SVMB_PROTO_MAGIC {
+        return None;
+    }
     Some(info.exit_counter)
 }
 
@@ -161,7 +173,7 @@ fn cmd_selftest() -> Result<(), String> {
     let handle = open_device()?;
     let mut buf = vec![0u8; size_of::<SvmbSelftestResult>()];
     let ret = ioctl(handle, SVMB_IOCTL_SELFTEST, &mut buf)?;
-    let r: SvmbSelftestResult = unsafe { core::ptr::read(buf.as_ptr().cast()) };
+    let r: SvmbSelftestResult = unsafe { core::ptr::read_unaligned(buf.as_ptr().cast()) };
     // SAFETY: HANDLE 由 CreateFileW 返回
     unsafe { CloseHandle(handle) };
 
@@ -180,10 +192,14 @@ fn cmd_selftest() -> Result<(), String> {
 fn cmd_cpuid_probe() -> Result<(), String> {
     // r115: guest userspace view of CPUID 0x80000001 (SVM bit) / 0x8000000A
     unsafe {
-        let i1 = cmd_info_raw_counter().unwrap_or(u64::MAX);
+        // T7:失败必须显式报错退出 —— unwrap_or(u64::MAX) 会把失败伪装成
+        // delta=0(r115 的 shell 层差分规避就是它逼的)
+        let i1 = cmd_info_raw_counter()
+            .ok_or_else(|| "exit_counter 读取失败(open/IOCTL/协议校验)".to_string())?;
         let mut a = core::arch::x86_64::__cpuid_count(0x8000_0001, 0);
         for _ in 0..4 { a = core::arch::x86_64::__cpuid_count(0x8000_0001, 0); }
-        let i2 = cmd_info_raw_counter().unwrap_or(u64::MAX);
+        let i2 = cmd_info_raw_counter()
+            .ok_or_else(|| "exit_counter 读取失败(open/IOCTL/协议校验)".to_string())?;
         println!("exit_counter before={} after={} delta={}", i1, i2, i2.wrapping_sub(i1));
         println!("leaf 0x80000001: ecx={:#010x} svm_bit(ecx[2])={}", a.ecx, (a.ecx >> 2) & 1);
         let b = core::arch::x86_64::__cpuid_count(0x8000_000A, 0);
