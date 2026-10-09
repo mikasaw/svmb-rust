@@ -605,19 +605,11 @@ svmb_vmm_loop_c:
     push rcx                     // [rsp] vcpu
 
 c_enter_guest:
-    mov rax, [rsp]               // vcpu
-    mov r10, [rax]               // guest_vmcb VA(指针@0)
-    lea r11, [rax + 0x4000]      // &regs(内嵌)
-    mov rcx, [r11 + 0x180]
-    mov [r10 + 0x578], rcx       // RIP
-    mov rcx, [r11 + 0x188]
-    mov [r10 + 0x5D8], rcx       // RSP
-    mov rcx, [r11 + 0x170]
-    mov [r10 + 0x5F8], rcx       // RAX
-    mov rcx, [r11 + 0x178]
-    mov [r10 + 0x570], rcx       // RFLAGS
-    mov qword ptr [r10 + 0x70], 1    // r125 哨兵
-
+    // T4c 结构修正:圈首只做 rax-only 的 vmload/vmrun —— VMRUN 不从 VMCB
+    // 装载 rbx/rcx/rdx/r8-r15/C svm_entry.asm r113 BANK-EVERYTHING
+    // LAW:物理寄存器直通 guest),圈首任何非 rax GPR 写都会作为宿主
+    // 残留漏进 guest。镜像->VMCB 的 4 字段写+哨兵移到 handler 之后、
+    // RESTORE 之前(= C shim 尾部的位置)。
     mov rax, [rsp + 0x8]
     vmload rax                   // guest 段/MSR
     mov rax, [rsp + 0x8]
@@ -639,24 +631,6 @@ c_enter_guest:
     vmsave rax                   // guest 状态 -> guest VMCB
     mov rax, [rsp + 0x10]
     vmload rax                   // host 状态
-
-    // T4b 根因修复:VMCB save 4 字段 -> 镜像(C shim 头部语义)。r151 起
-    // 该循环漏了这一步:硬件在 #VMEXIT 把 guest 的 RIP/RSP/RAX/RFLAGS
-    // 写进 VMCB save 区,但镜像不同步,圈首的镜像->VMCB 写就会把
-    // enter 时刻的陈旧 RSP/RFLAGS/RAX 灌回 guest(用户态线程扛着内核
-    // 栈重入)= CPL3@内核VA / MISSING_GSFRAME 全系指纹。C 混链之所以
-    // 存活,正是因为 SvmbVmExitEntry shim 每圈做了这个回读。
-    mov rax, [rsp]
-    mov r10, [rax]               // guest_vmcb VA
-    lea r11, [rax + 0x4000]      // &regs
-    mov rcx, [r10 + 0x578]
-    mov [r11 + 0x180], rcx       // RIP
-    mov rcx, [r10 + 0x5D8]
-    mov [r11 + 0x188], rcx       // RSP
-    mov rcx, [r10 + 0x5F8]
-    mov [r11 + 0x170], rcx       // RAX
-    mov rcx, [r10 + 0x570]
-    mov [r11 + 0x178], rcx       // RFLAGS
 
     mov rax, [rsp]
     add rax, 0x4000
@@ -691,6 +665,27 @@ c_enter_guest:
     mov [rax + 0x160], rcx
     mov [rax + 0x168], rbx
 
+    // T4b 根因修复:VMCB save 4 字段 -> 镜像(C shim 头部语义)。r151 起
+    // 该循环漏了这一步:硬件在 #VMEXIT 把 guest 的 RIP/RSP/RAX/RFLAGS
+    // 写进 VMCB save 区,但镜像不同步,圈首的镜像->VMCB 写就会把
+    // enter 时刻的陈旧 RSP/RFLAGS/RAX 灌回 guest(用户态线程扛着内核
+    // 栈重入)= CPL3@内核VA / MISSING_GSFRAME 全系指纹。C 混链之所以
+    // 存活,正是因为 SvmbVmExitEntry shim 每圈做了这个回读。
+    // T4c 位置修正:必须在 BACKUP 之后 —— 先行版本插在 BACKUP 前,
+    // r10/r11/rcx 被回读践踏后又被 BACKUP 存进镜像(guest 真实
+    // rcx/r10/r11 每圈丢失 = 慢尾 T+~125s 冻结的机理)。
+    mov rax, [rsp]
+    mov r10, [rax]               // guest_vmcb VA
+    lea r11, [rax + 0x4000]      // &regs
+    mov rcx, [r10 + 0x578]
+    mov [r11 + 0x180], rcx       // RIP
+    mov rcx, [r10 + 0x5D8]
+    mov [r11 + 0x188], rcx       // RSP
+    mov rcx, [r10 + 0x5F8]
+    mov [r11 + 0x170], rcx       // RAX
+    mov rcx, [r10 + 0x570]
+    mov [r11 + 0x178], rcx       // RFLAGS
+
     sub rsp, 0x30                // Win64 shadow space
     mov rcx, [rsp + 0x30]        // vcpu
     lea rdx, [rcx + 0x4000]      // regs
@@ -698,6 +693,21 @@ c_enter_guest:
     add rsp, 0x30
     test eax, eax
     jnz c_leave_loop
+
+    // T4c:镜像->VMCB 4 字段写 + r125 哨兵(原圈首位置;此处 rcx/r10/r11
+    // 践踏无害 —— guest GPR 已入镜像,RESTORE 随后覆盖物理寄存器)
+    mov rax, [rsp]
+    mov r10, [rax]               // guest_vmcb VA
+    lea r11, [rax + 0x4000]      // &regs
+    mov rcx, [r11 + 0x180]
+    mov [r10 + 0x578], rcx       // RIP
+    mov rcx, [r11 + 0x188]
+    mov [r10 + 0x5D8], rcx       // RSP
+    mov rcx, [r11 + 0x170]
+    mov [r10 + 0x5F8], rcx       // RAX
+    mov rcx, [r11 + 0x178]
+    mov [r10 + 0x570], rcx       // RFLAGS
+    mov qword ptr [r10 + 0x70], 1    // r125 哨兵
 
     mov rax, [rsp]
     add rax, 0x4000
