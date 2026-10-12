@@ -7,7 +7,9 @@
 
 A Rust port of a Windows kernel-mode AMD-V (SVM) hypervisor driver, built on the official [microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs) (wdk-rs) WDM pattern.
 
-**Status: stable.** All 6 cores virtualized, exit throughput at C-baseline class (26,953 exits / 15 min vs C's 14,835 / 8 min), 3×15 min soak all green.
+**Status: core virtualization engine stable, feature modules in progress.**
+
+The VMRUN loop, register synchronization, exit handling pipeline, and MSR stealth emulation have been validated against the C reference baseline (6 cores, 26,953 exits / 15 min, 3×15 min soak all green). The higher-level feature modules from the C reference (NPT hooks, CR3 monitor, syscall audit, debugger, module manager) are pending port. See [Feature Status](#feature-status) for details.
 
 [中文文档](README_zh-CN.md)
 
@@ -32,15 +34,38 @@ A Rust port of a Windows kernel-mode AMD-V (SVM) hypervisor driver, built on the
 
 ## Overview
 
-svmb-rust is a thin hypervisor: the kernel is the OS itself (no separate guest), running in AMD-V SVM mode with NPT disabled. The original C svmb is a working reference implementation; this project ports it fully to Rust.
+svmb-rust is a thin hypervisor: the kernel is the OS itself (no separate guest), running in AMD-V SVM mode with NPT disabled. The original C svmb is a working reference implementation; this project ports its core virtualization engine to Rust.
 
-Key features:
+### Feature Status
 
-- **6-core virtualization** on Windows 10 x64 (build 18362+)
-- **AutoStart**: service start enters virtualization at `DriverEntry` (no manual trigger)
-- **CPUID / MSR interception** with transparent passthrough
-- **VMRUN loop** in hand-written assembly, C-shaped register discipline
-- **C-obj A/B bridge**: the C reference loop can be linked in for comparison (`ENABLE_CLOOP`)
+**Working and enabled:**
+
+- 6-core virtualization on Windows 10 x64 (build 18362+)
+- AutoStart: service start enters virtualization at `DriverEntry` (registry-configurable)
+- CPUID interception with transparent host passthrough
+- MSR interception with stealth emulation (EFER hides SVME, VM_CR forces SVMDIS, HSAVE_PA fingerprint hidden)
+- Hypercall system via CPUID leaf: PROBE / VERSION / EXIT_VMM (with CPL gating)
+- Anti-nested-VMRUN: guest VMRUN → inject #BP
+- Shutdown forensics: guest triple-fault → deliberate `KeBugCheckEx` with register state
+- Graceful stop: LEAVING marker → IPI nudge → bounded wait
+- Per-core crumb ring (128-slot beacon) + exit histogram instrumentation
+- KDNET forensic tooling (5 modes: linkcheck / forensic / arm / watch / patrol)
+
+**Code exists but disabled (compile-time or config):**
+
+- CPUID hiding (SVM bit + NPT bit) — `ENABLE_HIDE_BITS=false`
+- NPT (nested page table) — 1TB identity view built but `NP_ENABLE=0` (matches C baseline on VMware vhv)
+
+**Not yet ported from C reference:**
+
+- NPT hooks (VA hooks, execute-deny, hook slide, shared pages)
+- CR3 monitor (process watch, per-process NPT views, READVM/WRITEVM)
+- Syscall audit (execute-sense auditing of MmCopyVirtualMemory / NtCreateFile / SSDT)
+- Debugger (software breakpoints, #DB/#UD events, DR hiding)
+- Module manager (5 loadable modules with attach/detach/query)
+- Stealth scrub (leaf-1 bit31, VMware leaf cleanup)
+- Self-test suite (C version has 22 offline tests)
+- 21 additional IOCTLs (only 3 of ~24 are implemented)
 
 ## How It Works
 

@@ -7,7 +7,9 @@
 
 Windows 内核态 AMD-V (SVM) hypervisor 驱动的 Rust 移植,基于 [microsoft/windows-drivers-rs](https://github.com/microsoft/windows-drivers-rs)(wdk-rs)官方 WDM 范式搭建。
 
-**当前状态:稳定。** 6 核全虚拟化,exit 吞吐与 C 基线同级(26,953 exits / 15 min vs C 的 14,835 / 8 min),3×15 min soak 全绿。
+**当前状态:核心虚拟化引擎稳定,功能模块移植中。**
+
+VMRUN 循环、寄存器同步、exit 处理管道、MSR 隐身模拟已通过与 C 参照基线的对照验收(6 核,26,953 exits / 15 min,3×15 min soak 全绿)。C 参照的更高层功能模块(NPT 钩子、CR3 监视器、系统调用审计、调试器、模块管理)待移植。详见[功能状态](#功能状态)。
 
 [English](README.md)
 
@@ -32,15 +34,38 @@ Windows 内核态 AMD-V (SVM) hypervisor 驱动的 Rust 移植,基于 [microsoft
 
 ## 项目简介
 
-svmb-rust 是一个 thin hypervisor:内核即操作系统本身(无独立 guest),以 AMD-V SVM 模式运行,NPT 关闭。原 C 版 svmb 是可运行的参照实现;本项目将其完整移植到 Rust。
+svmb-rust 是一个 thin hypervisor:内核即操作系统本身(无独立 guest),以 AMD-V SVM 模式运行,NPT 关闭。原 C 版 svmb 是可运行的参照实现;本项目将其核心虚拟化引擎移植到 Rust。
 
-主要特性:
+### 功能状态
 
-- **6 核虚拟化**(Windows 10 x64,build 18362+)
-- **AutoStart**:服务启动即在 `DriverEntry` 进入虚拟化(无需手动触发)
-- **CPUID / MSR 拦截**,透明直通
-- **VMRUN 循环**手写汇编,C 形状寄存器纪律
-- **C-obj A/B 桥**:可链入 C 参照循环做对照(`ENABLE_CLOOP` 开关)
+**工作且已启用:**
+
+- 6 核虚拟化(Windows 10 x64,build 18362+)
+- AutoStart:服务启动即在 `DriverEntry` 进入虚拟化(注册表可配)
+- CPUID 拦截,宿主透明直通
+- MSR 拦截 + 隐身模拟(EFER 隐藏 SVME、VM_CR 强制 SVMDIS、HSAVE_PA 指纹隐藏)
+- 超级调用系统(CPUID 叶):PROBE / VERSION / EXIT_VMM(带 CPL 门控)
+- 反嵌套 VMRUN:guest VMRUN → 注入 #BP
+- Shutdown 取证:guest triple-fault → 主动 `KeBugCheckEx` 携带寄存器现场
+- 优雅停止:LEAVING 标记 → IPI 促退出 → 有界等待
+- 每核 crumbs ring(128 槽信标环)+ exit 直方图仪表
+- KDNET 取证工具(5 模式:linkcheck / forensic / arm / watch / patrol)
+
+**代码存在但禁用(编译期或配置):**
+
+- CPUID 隐藏(SVM 位 + NPT 位)—— `ENABLE_HIDE_BITS=false`
+- NPT(嵌套页表)—— 1TB 恒等视图已构建但 `NP_ENABLE=0`(与 C 基线在 VMware vhv 上的稳定形态一致)
+
+**待从 C 参照移植:**
+
+- NPT 钩子(VA 钩子、执行拒绝、钩子滑移、共享页)
+- CR3 监视器(进程监控、per-process NPT 视图、READVM/WRITEVM)
+- 系统调用审计(MmCopyVirtualMemory / NtCreateFile / SSDT 执行感知)
+- 调试器(软断点、#DB/#UD 事件、DR 隐藏)
+- 模块管理(5 个可装载模块,attach/detach/query)
+- 隐身清洗(leaf-1 bit31、VMware 叶面清理)
+- 自检套件(C 版有 22 个离线测试)
+- 21 个额外 IOCTL(约 24 个中仅实现 3 个)
 
 ## 工作原理
 
